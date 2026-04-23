@@ -46,6 +46,9 @@ jobs:
             | sudo bash -s -- -b /usr/local/bin
           act --version
 
+      - name: Attach branch ref to detached HEAD (silences act "unable to get git ref")
+        run: git update-ref refs/heads/act-local HEAD
+
       - name: Run workflow against ${{ matrix.event }} event
         run: |
           set +e
