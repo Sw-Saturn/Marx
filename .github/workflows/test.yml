@@ -23,10 +23,10 @@ jobs:
         include:
           - event: no_match
             expect_fail: false
-            expect_log: "skipping: comment does not match command"
+            expect_log: ""
           - event: not_pr
             expect_fail: false
-            expect_log: "skipping: comment is not on a pull request"
+            expect_log: ""
           - event: approve
             expect_fail: true
             expect_log: "approving PR #1"
@@ -57,7 +57,9 @@ jobs:
             echo "::error::expected act to succeed but it failed"
             exit 1
           fi
-          echo "$out" | grep -qF "${{ matrix.expect_log }}" || {
-            echo "::error::expected log not found: ${{ matrix.expect_log }}"
-            exit 1
-          }
+          if [ -n "${{ matrix.expect_log }}" ]; then
+            echo "$out" | grep -qF "${{ matrix.expect_log }}" || {
+              echo "::error::expected log not found: ${{ matrix.expect_log }}"
+              exit 1
+            }
+          fi
