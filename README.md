@@ -198,3 +198,7 @@ The `Test` workflow runs on every pull request:
 ## Privacy
 
 See [PRIVACY.md](./PRIVACY.md).
+
+## License
+
+[MIT](./LICENSE)
