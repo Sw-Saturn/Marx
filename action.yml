@@ -13,4 +13,3 @@ runs:
   image: "Dockerfile"
   env:
     GITHUB_TOKEN: ${{ inputs.github-token }}
-    INPUT_COMMAND: ${{ inputs.command }}
