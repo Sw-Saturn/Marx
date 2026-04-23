@@ -22,6 +22,24 @@ jobs:
       - name: docker build (captures inner stderr that act suppresses)
         run: docker build --progress=plain -t slash-approve .
 
+      - name: Run binary against approve event (dummy token, expect API failure)
+        run: |
+          set +e
+          out=$(docker run --rm \
+            -e GITHUB_TOKEN=dummy-token \
+            -e GITHUB_REPOSITORY=test/repo \
+            -e GITHUB_EVENT_PATH=/event.json \
+            -v "$PWD/testdata/issue_comment_approve.json:/event.json:ro" \
+            slash-approve 2>&1)
+          ec=$?
+          echo "$out"
+          echo "--- binary exit=$ec ---"
+          [ "$ec" -ne 0 ] || { echo "::error::expected binary to fail at API call with dummy token"; exit 1; }
+          echo "$out" | grep -qF "approving PR #1 in test/repo" || {
+            echo "::error::expected log 'approving PR #1 in test/repo' not found"
+            exit 1
+          }
+
   act-simulate:
     runs-on: ubuntu-latest
     strategy:
@@ -34,9 +52,6 @@ jobs:
           - event: not_pr
             expect_fail: false
             expect_log: ""
-          - event: approve
-            expect_fail: true
-            expect_log: "approving PR #1"
     steps:
       - uses: actions/checkout@v4
 

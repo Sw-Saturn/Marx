@@ -149,28 +149,51 @@ go test ./...
 
 ### Reproduce the CI simulation locally
 
-`act` is used to replay `issue_comment` payloads against the production
-workflow. Fixture events live under `testdata/`.
+Two complementary test paths are used locally, mirroring CI:
 
-```sh
-act issue_comment \
-  -P ubuntu-latest=catthehacker/ubuntu:act-latest \
-  -e testdata/issue_comment_approve.json \
-  -s APPROVE_TOKEN=dummy-token
-```
+1. `act` replays `issue_comment` payloads against the production workflow to
+   verify the `if:` guard filters correctly. Fixture events live under
+   `testdata/`. The production workflow depends on
+   `actions/create-github-app-token`, so the approve fixture is exercised
+   separately (see step 2) rather than through act.
 
-On Rancher Desktop / Apple Silicon, additionally pass
-`DOCKER_HOST=unix://$HOME/.rd/docker.sock` and
-`--container-daemon-socket /var/run/docker.sock --container-architecture linux/arm64`.
+   ```sh
+   act issue_comment \
+     -P ubuntu-latest=catthehacker/ubuntu:act-latest \
+     -e testdata/issue_comment_no_match.json \
+     -s APPROVE_TOKEN=dummy-token
+   ```
+
+   On Rancher Desktop / Apple Silicon, additionally pass
+   `DOCKER_HOST=unix://$HOME/.rd/docker.sock` and
+   `--container-daemon-socket /var/run/docker.sock --container-architecture linux/arm64`.
+
+2. Run the built image directly against the approve fixture to verify the
+   binary reaches the API call:
+
+   ```sh
+   docker build -t slash-approve .
+   docker run --rm \
+     -e GITHUB_TOKEN=dummy-token \
+     -e GITHUB_REPOSITORY=test/repo \
+     -e GITHUB_EVENT_PATH=/event.json \
+     -v "$PWD/testdata/issue_comment_approve.json:/event.json:ro" \
+     slash-approve
+   ```
+
+   With a dummy token the API call returns `401` / `422` — the log line
+   `approving PR #1 in test/repo` printed just before the error proves the
+   filter and event parsing are working.
 
 ### CI
 
 The `Test` workflow runs on every pull request:
 
 - `go-test` — `go test -v ./...`
-- `docker-build` — builds the action image with full build output
-- `act-simulate` — matrix across the three fixture events, asserting exit code
-  and expected log lines
+- `docker-build` — builds the action image and runs the binary against the
+  approve fixture end-to-end
+- `act-simulate` — replays the `no_match` and `not_pr` fixtures through the
+  production workflow to verify the `if:` guard
 
 ## Privacy
 
