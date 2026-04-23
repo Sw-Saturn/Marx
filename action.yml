@@ -2,7 +2,7 @@ name: "Slash Approve"
 description: "Approve a pull request via slash command in comments"
 inputs:
   github-token:
-    description: "GitHub token with PR review permissions (PAT or GitHub App token required for self-approval)"
+    description: "GitHub token with pull_requests:write. Self-approval (reviewer = PR author) requires a GitHub App installation token; PATs are rejected by GitHub in that case."
     required: true
   command:
     description: "Slash command to trigger approval"
