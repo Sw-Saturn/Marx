@@ -1,0 +1,15 @@
+name: Slash Approve
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  approve:
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '/approve')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          github-token: ${{ secrets.APPROVE_TOKEN }}
