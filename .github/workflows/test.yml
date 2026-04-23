@@ -23,6 +23,10 @@ jobs:
         run: docker build --progress=plain -t slash-approve .
 
       - name: Run binary against approve event (dummy token, expect API failure)
+        # Passes a deliberately invalid GITHUB_TOKEN so GitHub returns
+        # 401 Bad credentials. The assertion checks that the binary
+        # reached the API call (log line "approving PR #1 in test/repo")
+        # and exited non-zero, not that the review succeeded.
         run: |
           set +e
           out=$(docker run --rm \
