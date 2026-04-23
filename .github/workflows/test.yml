@@ -43,6 +43,7 @@ jobs:
         run: |
           set +e
           out=$(act issue_comment \
+            -P ubuntu-latest=catthehacker/ubuntu:act-latest \
             -e testdata/issue_comment_${{ matrix.event }}.json \
             -s APPROVE_TOKEN=dummy-token 2>&1)
           ec=$?
