@@ -1,0 +1,10 @@
+{
+  "action": "created",
+  "comment": {
+    "body": "/approve"
+  },
+  "issue": {
+    "number": 1,
+    "pull_request": null
+  }
+}

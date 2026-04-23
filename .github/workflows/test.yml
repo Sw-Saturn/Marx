@@ -1,0 +1,75 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -v ./...
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker build (captures inner stderr that act suppresses)
+        run: docker build --progress=plain -t slash-approve .
+
+  act-simulate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - event: no_match
+            expect_fail: false
+            expect_log: ""
+          - event: not_pr
+            expect_fail: false
+            expect_log: ""
+          - event: approve
+            expect_fail: true
+            expect_log: "approving PR #1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install act
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh \
+            | sudo bash -s -- -b /usr/local/bin
+          act --version
+
+      - name: Attach branch ref to detached HEAD (silences act "unable to get git ref")
+        run: git update-ref refs/heads/act-local HEAD
+
+      - name: Run workflow against ${{ matrix.event }} event
+        run: |
+          set +e
+          out=$(act issue_comment \
+            -P ubuntu-latest=catthehacker/ubuntu:act-latest \
+            -e testdata/issue_comment_${{ matrix.event }}.json \
+            -s APPROVE_TOKEN=dummy-token 2>&1)
+          ec=$?
+          echo "$out"
+          echo "--- act exit=$ec ---"
+          if [ "${{ matrix.expect_fail }}" = "true" ] && [ "$ec" -eq 0 ]; then
+            echo "::error::expected act to fail but it succeeded"
+            exit 1
+          fi
+          if [ "${{ matrix.expect_fail }}" = "false" ] && [ "$ec" -ne 0 ]; then
+            echo "::error::expected act to succeed but it failed"
+            exit 1
+          fi
+          if [ -n "${{ matrix.expect_log }}" ]; then
+            echo "$out" | grep -qF "${{ matrix.expect_log }}" || {
+              echo "::error::expected log not found: ${{ matrix.expect_log }}"
+              exit 1
+            }
+          fi
