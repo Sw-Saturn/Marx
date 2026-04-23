@@ -13,22 +13,76 @@ review on that PR via the GitHub REST API.
 
 - The workflow file **must live on the repository's default branch**. GitHub only
   dispatches `issue_comment` events to workflows defined on the default branch.
-- A token with `pull_requests: write` permission on the target repository. The
-  built-in `GITHUB_TOKEN` cannot approve a PR authored by the same user, so
-  self-approval requires one of:
-  - a **Personal Access Token** (fine-grained with `Pull requests: Read and write`,
-    or classic with `repo` scope), or
-  - a **GitHub App installation token**.
+- A token that can create PR reviews on the target repository. **The identity
+  behind the token must differ from the PR author** — GitHub rejects a review if
+  the reviewer is the same user as the PR author with
+  `422 Unprocessable Entity: Can not approve your own pull request`. This rules
+  out self-approval with a PAT owned by the PR author.
 
-## Quickstart
+| Scenario | Token type |
+|---|---|
+| Approve PRs authored by other users | Fine-grained PAT with `Pull requests: Read and write`, or classic PAT with `repo` scope |
+| Approve your own PRs (solo project, automation) | **GitHub App installation token** (the app acts as a distinct bot identity) |
 
-1. Generate a token (fine-grained PAT is the simplest):
-   - Settings → Developer settings → Personal access tokens → Fine-grained tokens
-   - Repository access: only the target repositories
-   - Repository permissions → **Pull requests: Read and write**
-2. Add the token as a repository secret named `APPROVE_TOKEN`
-   (Settings → Secrets and variables → Actions → New repository secret).
-3. Add the following workflow to your default branch:
+The built-in `GITHUB_TOKEN` cannot approve PRs in either case by default.
+
+## Quickstart (GitHub App)
+
+This is the only path that supports approving PRs authored by the same user
+who triggered the comment. Use it for solo repositories and automation.
+
+1. Create a GitHub App: Settings → Developer settings → GitHub Apps → **New GitHub App**.
+   - Webhook: **uncheck Active** (not needed).
+   - Repository permissions → **Pull requests: Read and write**.
+2. Generate and download a private key (`.pem`) from the app's settings page.
+3. Install the app on the target repository.
+4. Add two repository secrets:
+   - `MARX_APP_ID` — the app's numeric ID (shown on the app's settings page).
+   - `MARX_APP_PRIVATE_KEY` — the full contents of the `.pem` file.
+5. Add the following workflow to the default branch:
+
+```yaml
+# .github/workflows/approve.yml
+name: Slash Approve
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  approve:
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/approve') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.MARX_APP_ID }}
+          private-key: ${{ secrets.MARX_APP_PRIVATE_KEY }}
+      - uses: Sw-Saturn/Marx@main
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+```
+
+6. Open a PR, post `/approve`, and the action will create an approving review
+   under the app's bot identity.
+
+## Quickstart (PAT, non-self-approval only)
+
+Use a PAT when you only need to approve PRs authored by **other** users.
+Approving your own PR with a PAT you own will be rejected by GitHub.
+
+1. Generate a fine-grained PAT:
+   - Settings → Developer settings → Personal access tokens → Fine-grained tokens.
+   - Repository access: only the target repositories.
+   - Repository permissions → **Pull requests: Read and write**.
+2. Add the token as a repository secret named `APPROVE_TOKEN`.
+3. Use this workflow on the default branch:
 
 ```yaml
 # .github/workflows/approve.yml
@@ -51,8 +105,6 @@ jobs:
         with:
           github-token: ${{ secrets.APPROVE_TOKEN }}
 ```
-
-4. Open a PR, post `/approve`, and the action will create an approving review.
 
 ## Inputs
 
