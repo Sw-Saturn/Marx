@@ -11,20 +11,29 @@ review on that PR via the GitHub REST API.
 
 ## Requirements
 
-- The workflow file **must live on the repository's default branch**. GitHub only
-  dispatches `issue_comment` events to workflows defined on the default branch.
-- A token that can create PR reviews on the target repository. **The identity
-  behind the token must differ from the PR author** — GitHub rejects a review if
-  the reviewer is the same user as the PR author with
-  `422 Unprocessable Entity: Can not approve your own pull request`. This rules
-  out self-approval with a PAT owned by the PR author.
+- The workflow file **must live on the repository's default branch** — GitHub
+  only dispatches `issue_comment` events to workflows defined on the default
+  branch.
+- A `github-token` input that can submit a review on the target PR. Two
+  independent rules govern the choice of token:
 
-| Scenario | Token type |
-|---|---|
-| Approve PRs authored by other users | Fine-grained PAT with `Pull requests: Read and write`, or classic PAT with `repo` scope |
-| Approve your own PRs (solo project, automation) | **GitHub App installation token** (the app acts as a distinct bot identity) |
+  1. **Reviewer identity must differ from the PR author.** GitHub rejects a
+     review with `422 Unprocessable Entity: Review Can not approve your own
+     pull request` when the reviewer is the same user as the PR author. This
+     blocks self-approval with a PAT owned by the PR author.
+  2. **If the target repo enforces a required approving review count** (via
+     branch protection or a ruleset), the reviewer must be recognized as
+     having **write access to the repository** for the review to count. An
+     approving review from an identity without write access is recorded on
+     the PR but leaves `reviewDecision` at `REVIEW_REQUIRED`, so the PR stays
+     blocked.
 
-The built-in `GITHUB_TOKEN` cannot approve PRs in either case by default.
+| Token | Can self-approve? | Satisfies required-review rules? | Setup |
+|---|---|---|---|
+| `GITHUB_TOKEN` | Only when the PR author is not `github-actions[bot]` (typical) | Not reliable — treated as a bot review, often does not satisfy required counts | Enable "Allow GitHub Actions to create and approve pull requests" in repo Actions settings, plus `pull-requests: write` on the job |
+| PAT (fine-grained) | Blocked when the PAT owner is the PR author | Yes, as long as the PAT owner has repo write access | Fine-grained PAT with `Pull requests: Read and write` |
+| PAT (classic) | Blocked when the PAT owner is the PR author | Yes, as long as the PAT owner has repo write access | Classic PAT with `repo` scope |
+| **GitHub App installation token** (recommended) | Works — the app acts as a distinct bot identity | Only when the app has `Contents: Read and write` **in addition to** `Pull requests: Read and write`. With `Pull requests` alone, the review is submitted but does not count toward required reviews. | See [Quickstart (GitHub App)](#quickstart-github-app) |
 
 ## Quickstart (GitHub App)
 
@@ -33,7 +42,13 @@ who triggered the comment. Use it for solo repositories and automation.
 
 1. Create a GitHub App: Settings → Developer settings → GitHub Apps → **New GitHub App**.
    - Webhook: **uncheck Active** (not needed).
-   - Repository permissions → **Pull requests: Read and write**.
+   - Repository permissions:
+     - **Pull requests: Read and write** — required to submit reviews.
+     - **Contents: Read and write** — required for the review to count toward
+       required-review rules (branch protection / rulesets). Grant this unless
+       you are certain the target repo does not enforce such a rule; without
+       it the app's approval is submitted but does not satisfy the required
+       count and the PR stays blocked.
 2. Generate and download a private key (`.pem`) from the app's settings page.
 3. Install the app on the target repository.
 4. Add two repository secrets:
