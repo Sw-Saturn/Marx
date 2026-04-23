@@ -1,0 +1,12 @@
+{
+  "action": "created",
+  "comment": {
+    "body": "/approve"
+  },
+  "issue": {
+    "number": 1,
+    "pull_request": {
+      "url": "https://api.github.com/repos/test/repo/pulls/1"
+    }
+  }
+}
