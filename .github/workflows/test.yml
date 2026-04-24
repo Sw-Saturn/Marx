@@ -6,89 +6,40 @@ on:
   pull_request:
 
 jobs:
-  go-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: go test -v ./...
-
-  docker-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: docker build (captures inner stderr that act suppresses)
-        run: docker build --progress=plain -t slash-approve .
-
-      - name: Run binary against approve event (dummy token, expect API failure)
-        # Passes a deliberately invalid GITHUB_TOKEN so GitHub returns
-        # 401 Bad credentials. The assertion checks that the binary
-        # reached the API call (log line "approving PR #1 in test/repo")
-        # and exited non-zero, not that the review succeeded.
-        run: |
-          set +e
-          out=$(docker run --rm \
-            -e GITHUB_TOKEN=dummy-token \
-            -e GITHUB_REPOSITORY=test/repo \
-            -e GITHUB_EVENT_PATH=/event.json \
-            -v "$PWD/testdata/issue_comment_approve.json:/event.json:ro" \
-            slash-approve 2>&1)
-          ec=$?
-          echo "$out"
-          echo "--- binary exit=$ec ---"
-          [ "$ec" -ne 0 ] || { echo "::error::expected binary to fail at API call with dummy token"; exit 1; }
-          echo "$out" | grep -qF "approving PR #1 in test/repo" || {
-            echo "::error::expected log 'approving PR #1 in test/repo' not found"
-            exit 1
-          }
-
-  act-simulate:
+  composite-simulate:
+    name: composite (${{ matrix.event }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - event: no_match
-            expect_fail: false
-            expect_log: ""
+            expect: success
           - event: not_pr
-            expect_fail: false
-            expect_log: ""
+            expect: success
+          - event: approve
+            # Dummy token causes the API call to return 401 Bad credentials,
+            # so the step is expected to fail. Reaching that failure proves
+            # the filter let the approve path through to the API call.
+            expect: failure
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install act
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh \
-            | sudo bash -s -- -b /usr/local/bin
-          act --version
+      - name: Overwrite runner event payload with fixture
+        run: cp "testdata/issue_comment_${{ matrix.event }}.json" "$GITHUB_EVENT_PATH"
 
-      - name: Attach branch ref to detached HEAD (silences act "unable to get git ref")
-        run: git update-ref refs/heads/act-local HEAD
+      - name: Run composite action
+        id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          github-token: dummy-token
 
-      - name: Run workflow against ${{ matrix.event }} event
+      - name: Verify outcome
         run: |
-          set +e
-          out=$(act issue_comment \
-            -P ubuntu-latest=catthehacker/ubuntu:act-latest \
-            -e testdata/issue_comment_${{ matrix.event }}.json \
-            -s APPROVE_TOKEN=dummy-token 2>&1)
-          ec=$?
-          echo "$out"
-          echo "--- act exit=$ec ---"
-          if [ "${{ matrix.expect_fail }}" = "true" ] && [ "$ec" -eq 0 ]; then
-            echo "::error::expected act to fail but it succeeded"
+          expected="${{ matrix.expect }}"
+          actual="${{ steps.run.outcome }}"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::expected outcome '$expected', got '$actual'"
             exit 1
-          fi
-          if [ "${{ matrix.expect_fail }}" = "false" ] && [ "$ec" -ne 0 ]; then
-            echo "::error::expected act to succeed but it failed"
-            exit 1
-          fi
-          if [ -n "${{ matrix.expect_log }}" ]; then
-            echo "$out" | grep -qF "${{ matrix.expect_log }}" || {
-              echo "::error::expected log not found: ${{ matrix.expect_log }}"
-              exit 1
-            }
           fi

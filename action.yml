@@ -9,7 +9,59 @@ inputs:
     required: false
     default: "/approve"
 runs:
-  using: "docker"
-  image: "Dockerfile"
-  env:
-    GITHUB_TOKEN: ${{ inputs.github-token }}
+  using: "composite"
+  steps:
+    - name: Slash approve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_COMMAND: ${{ inputs.command }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${GITHUB_EVENT_PATH:-}" ] || [ ! -f "$GITHUB_EVENT_PATH" ]; then
+          echo "::error::GITHUB_EVENT_PATH is not set or file does not exist"
+          exit 1
+        fi
+        if [ -z "${GITHUB_REPOSITORY:-}" ]; then
+          echo "::error::GITHUB_REPOSITORY is not set"
+          exit 1
+        fi
+
+        action=$(jq -r '.action // ""' "$GITHUB_EVENT_PATH")
+        if [ "$action" != "created" ]; then
+          echo "skipping: event action is not 'created' (got '$action')"
+          exit 0
+        fi
+
+        is_pr=$(jq -r '.issue.pull_request // empty' "$GITHUB_EVENT_PATH")
+        if [ -z "$is_pr" ]; then
+          echo "skipping: comment is not on a pull request"
+          exit 0
+        fi
+
+        body=$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")
+
+        if ! awk -v cmd="$INPUT_COMMAND" '
+          {
+            line = $0
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+            if (line == cmd) { found = 1 }
+          }
+          END { exit (found ? 0 : 1) }
+        ' <<< "$body"; then
+          echo "skipping: comment does not match command \"$INPUT_COMMAND\""
+          exit 0
+        fi
+
+        number=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+        echo "approving PR #$number in $GITHUB_REPOSITORY"
+
+        gh api \
+          --method POST \
+          -H "Accept: application/vnd.github+json" \
+          "/repos/$GITHUB_REPOSITORY/pulls/$number/reviews" \
+          -f event=APPROVE \
+          > /dev/null
+
+        echo "PR #$number approved successfully"
