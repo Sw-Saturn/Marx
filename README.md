@@ -79,7 +79,7 @@ jobs:
         with:
           app-id: ${{ secrets.MARX_APP_ID }}
           private-key: ${{ secrets.MARX_APP_PRIVATE_KEY }}
-      - uses: Sw-Saturn/Marx@main
+      - uses: Sw-Saturn/Marx@v2
         with:
           github-token: ${{ steps.app-token.outputs.token }}
 ```
@@ -116,7 +116,7 @@ jobs:
        github.event.comment.author_association == 'COLLABORATOR')
     runs-on: ubuntu-latest
     steps:
-      - uses: Sw-Saturn/Marx@main
+      - uses: Sw-Saturn/Marx@v2
         with:
           github-token: ${{ secrets.APPROVE_TOKEN }}
 ```
@@ -151,64 +151,51 @@ Recognized `author_association` values include `OWNER`, `MEMBER`,
 Pin to a released tag in production, not `@main`:
 
 ```yaml
-uses: Sw-Saturn/Marx@v1.0.0
+uses: Sw-Saturn/Marx@v2
 ```
+
+`v2` and newer is a composite action with no container build overhead.
+`v1.x` (Docker-based) remains available for consumers that have pinned to it,
+but is no longer developed.
+
+## Runner requirements
+
+The composite action shells out to `jq` and `gh`. Both are pre-installed on
+GitHub-hosted `ubuntu-*` runners, so no setup is needed there. Self-hosted
+runners need them on `PATH`.
 
 ## Development
 
-### Run unit tests
+Nothing to build — the action is a single shell step in `action.yml`.
+
+### Run the action locally against a fixture
+
+Stage one of the fixtures in `testdata/` as the event payload and invoke the
+shell step with a dummy token:
 
 ```sh
-go test ./...
+export GITHUB_EVENT_PATH="$(mktemp)"
+cp testdata/issue_comment_approve.json "$GITHUB_EVENT_PATH"
+export GITHUB_REPOSITORY=test/repo
+export GH_TOKEN=dummy-token
+export INPUT_COMMAND=/approve
+
+# Extract and run the shell body of the composite action
+yq '.runs.steps[0].run' action.yml | bash
 ```
 
-### Reproduce the CI simulation locally
-
-Two complementary test paths are used locally, mirroring CI:
-
-1. `act` replays `issue_comment` payloads against the production workflow to
-   verify the `if:` guard filters correctly. Fixture events live under
-   `testdata/`. The production workflow depends on
-   `actions/create-github-app-token`, so the approve fixture is exercised
-   separately (see step 2) rather than through act.
-
-   ```sh
-   act issue_comment \
-     -P ubuntu-latest=catthehacker/ubuntu:act-latest \
-     -e testdata/issue_comment_no_match.json \
-     -s APPROVE_TOKEN=dummy-token
-   ```
-
-   On Rancher Desktop / Apple Silicon, additionally pass
-   `DOCKER_HOST=unix://$HOME/.rd/docker.sock` and
-   `--container-daemon-socket /var/run/docker.sock --container-architecture linux/arm64`.
-
-2. Run the built image directly against the approve fixture to verify the
-   binary reaches the API call:
-
-   ```sh
-   docker build -t slash-approve .
-   docker run --rm \
-     -e GITHUB_TOKEN=dummy-token \
-     -e GITHUB_REPOSITORY=test/repo \
-     -e GITHUB_EVENT_PATH=/event.json \
-     -v "$PWD/testdata/issue_comment_approve.json:/event.json:ro" \
-     slash-approve
-   ```
-
-   With a dummy token the API call returns `401` / `422` — the log line
-   `approving PR #1 in test/repo` printed just before the error proves the
-   filter and event parsing are working.
+For the approve fixture a `401 Bad credentials` response from `api.github.com`
+after the `approving PR #1 in test/repo` log line is the expected "reached the
+API" outcome. For `issue_comment_no_match.json` /
+`issue_comment_not_pr.json`, expect a `skipping: ...` log and exit 0.
 
 ### CI
 
-The `Test` workflow runs on every pull request:
+The `Test` workflow runs the composite action against each fixture in
+`testdata/` and asserts the resulting step outcome:
 
-- `go-test` — `go test -v ./...`
-- `docker-build` — builds the action image and runs the binary against the
-  approve fixture end-to-end
-- `act-simulate` — replays the `no_match` and `not_pr` fixtures through the
-  production workflow to verify the `if:` guard
+- `no_match` / `not_pr` → expected success (action exits 0 after the skip log)
+- `approve` → expected failure (dummy token → 401 from the API)
 
 ## Privacy
 
