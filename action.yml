@@ -19,7 +19,10 @@ runs:
       run: |
         set -euo pipefail
 
-        if [ -z "${GITHUB_EVENT_PATH:-}" ] || [ ! -f "$GITHUB_EVENT_PATH" ]; then
+        # SLASH_APPROVE_EVENT_PATH is an internal override used by the Test
+        # workflow to point at fixture payloads; production uses GITHUB_EVENT_PATH.
+        event_path="${SLASH_APPROVE_EVENT_PATH:-${GITHUB_EVENT_PATH:-}}"
+        if [ -z "$event_path" ] || [ ! -f "$event_path" ]; then
           echo "::error::GITHUB_EVENT_PATH is not set or file does not exist"
           exit 1
         fi
@@ -28,19 +31,19 @@ runs:
           exit 1
         fi
 
-        action=$(jq -r '.action // ""' "$GITHUB_EVENT_PATH")
+        action=$(jq -r '.action // ""' "$event_path")
         if [ "$action" != "created" ]; then
           echo "skipping: event action is not 'created' (got '$action')"
           exit 0
         fi
 
-        is_pr=$(jq -r '.issue.pull_request // empty' "$GITHUB_EVENT_PATH")
+        is_pr=$(jq -r '.issue.pull_request // empty' "$event_path")
         if [ -z "$is_pr" ]; then
           echo "skipping: comment is not on a pull request"
           exit 0
         fi
 
-        body=$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")
+        body=$(jq -r '.comment.body // ""' "$event_path")
 
         if ! awk -v cmd="$INPUT_COMMAND" '
           {
@@ -54,7 +57,7 @@ runs:
           exit 0
         fi
 
-        number=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+        number=$(jq -r '.issue.number' "$event_path")
         echo "approving PR #$number in $GITHUB_REPOSITORY"
 
         gh api \

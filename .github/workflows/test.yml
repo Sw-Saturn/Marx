@@ -25,13 +25,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Overwrite runner event payload with fixture
-        run: cp "testdata/issue_comment_${{ matrix.event }}.json" "$GITHUB_EVENT_PATH"
+      - name: Stage fixture as event payload
+        id: stage
+        run: |
+          dst="$RUNNER_TEMP/event.json"
+          cp "testdata/issue_comment_${{ matrix.event }}.json" "$dst"
+          echo "path=$dst" >> "$GITHUB_OUTPUT"
 
       - name: Run composite action
         id: run
         continue-on-error: true
         uses: ./
+        env:
+          SLASH_APPROVE_EVENT_PATH: ${{ steps.stage.outputs.path }}
         with:
           github-token: dummy-token
 
