@@ -1,0 +1,36 @@
+name: Renovate Validate
+
+on:
+  pull_request:
+    paths:
+      - "renovate.json"
+      - ".github/workflows/renovate-validate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  config-validator:
+    name: Schema validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: rinchsan/renovate-config-validator@a12a2b98cd4db923c33d1ce407c57afb43f3ff59 # v0.2.0
+        with:
+          pattern: "renovate.json"
+
+  dry-run:
+    name: Dry run
+    runs-on: ubuntu-latest
+    needs: config-validator
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: renovatebot/github-action@f66d8679fcfcfa051abde6e7a623007173bf5164 # v46.1.12
+        env:
+          RENOVATE_DRY_RUN: full
+          RENOVATE_PRINT_CONFIG: "true"
+          LOG_LEVEL: debug
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.GITHUB_TOKEN }}
